@@ -3,7 +3,6 @@
 
 # except
 !scripts/
-!build/
 !docs/
 !*.py
 !CMakeLists.txt
