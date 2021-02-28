@@ -39,6 +39,7 @@ def main():
   parser.add_argument("--lambda", default=1.0, type=float, dest='lambda_', help="lambda=1.0 = train on evaluations, lambda=0.0 = train on game results, interpolates between (default=1.0).")
   parser.add_argument("--num-workers", default=1, type=int, dest='num_workers', help="Number of worker threads to use for data loading. Currently only works well for binpack.")
   parser.add_argument("--batch-size", default=-1, type=int, dest='batch_size', help="Number of positions per batch / per iteration. Default on GPU = 8192 on CPU = 128.")
+  parser.add_argument("--folder-name", default="run", type=str, dest='folder_name', help="Folder name for your checkpoints")
   parser.add_argument("--threads", default=-1, type=int, dest='threads', help="Number of torch threads to use. Default automatic (cores) .")
   parser.add_argument("--seed", default=42, type=int, dest='seed', help="torch seed to use.")
   parser.add_argument("--smart-fen-skipping", action='store_true', dest='smart_fen_skipping', help="If enabled positions that are bad training targets will be skipped during loading. Default: False")
@@ -83,12 +84,12 @@ def main():
     print('limiting torch to {} threads.'.format(args.threads))
     t_set_num_threads(args.threads)
 
-  logdir = args.default_root_dir if args.default_root_dir else 'logs/run9'
+  logdir = args.default_root_dir if args.default_root_dir else 'logs/{}'.format(args.folder_name)
   print('Using log dir {}'.format(logdir), flush=True)
 
   tb_logger = pl_loggers.TensorBoardLogger(logdir)
   earlystoppage_callback = pl.callbacks.early_stopping.EarlyStopping(monitor="val_loss", mode="min", patience=10)
-  checkpoint_callback = pl.callbacks.ModelCheckpoint(save_top_k=100, mode="min", monitor="val_loss", filename='{epoch}-{val_loss:.4f}', dirpath='logs/run9')
+  checkpoint_callback = pl.callbacks.ModelCheckpoint(save_top_k=100, mode="min", monitor="val_loss", filename='{epoch}-{val_loss:.4f}', dirpath='logs/{}'.format(args.folder_name))
   trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback, earlystoppage_callback], logger=tb_logger, max_epochs=350)
 
   main_device = trainer.root_device if trainer.root_gpu is None else 'cuda:' + str(trainer.root_gpu)
