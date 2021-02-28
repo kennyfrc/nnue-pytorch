@@ -56,11 +56,12 @@ def main():
   feature_set = features.get_feature_set_from_name(args.features)
 
   if args.resume_from_model is None:
-    nnue = M.NNUE(feature_set=feature_set, lambda_=args.lambda_)
+    nnue = M.NNUE(feature_set=feature_set, lambda_=args.lambda_, lr_=1e-3)
   else:
     nnue = torch.load(args.resume_from_model)
     nnue.set_feature_set(feature_set)
     nnue.lambda_ = args.lambda_
+    nnue.lr_ = 1e-3
 
   print("Feature set: {}".format(feature_set.name))
   print("Num real features: {}".format(feature_set.num_real_features))
@@ -101,6 +102,12 @@ def main():
     print('Using c++ data loader')
     train, val = data_loader_cc(args.train, args.val, feature_set, args.num_workers, batch_size, args.smart_fen_skipping, args.random_fen_skipping, main_device)
 
+  lr_finder = trainer.tuner.lr_find(nnue, train, val, mode="linear", max_lr=1e-2)
+
+  suggested_lr = lr_finder.suggestion()
+  print("suggested learning rate: {}".format(suggested_lr))
+
+  nnue.lr_ = suggested_lr
   trainer.fit(nnue, train, val)
 
 if __name__ == '__main__':
