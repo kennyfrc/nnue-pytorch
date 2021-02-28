@@ -83,12 +83,13 @@ def main():
     print('limiting torch to {} threads.'.format(args.threads))
     t_set_num_threads(args.threads)
 
-  logdir = args.default_root_dir if args.default_root_dir else 'logs/'
+  logdir = args.default_root_dir if args.default_root_dir else 'logs/run9'
   print('Using log dir {}'.format(logdir), flush=True)
 
   tb_logger = pl_loggers.TensorBoardLogger(logdir)
-  checkpoint_callback = pl.callbacks.ModelCheckpoint(save_last=True)
-  trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback], logger=tb_logger)
+  earlystoppage_callback = pl.callbacks.early_stopping.EarlyStopping(monitor="val_loss", mode="min", patience=4)
+  checkpoint_callback = pl.callbacks.ModelCheckpoint(save_top_k=100, mode="min", monitor="val_loss", filename='{epoch}-{val_loss:.4f}', dirpath='logs/run9')
+  trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback, earlystoppage_callback], logger=tb_logger, max_epochs=350)
 
   main_device = trainer.root_device if trainer.root_gpu is None else 'cuda:' + str(trainer.root_gpu)
 

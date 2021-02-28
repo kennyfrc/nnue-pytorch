@@ -1,4 +1,10 @@
-__pycache__/
-env/
-build/
-logs/
+# ignore everything
+*
+
+# except
+!scripts/
+!build/
+!docs/
+!*.py
+!CMakeLists.txt
+!*.cpp

@@ -4,6 +4,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
+import pdb
 
 # 3 layer fully connected network
 L1 = 256
@@ -133,16 +134,19 @@ class NNUE(pl.LightningModule):
     self.step_(batch, batch_idx, 'test_loss')
 
   def configure_optimizers(self):
-    # Train with a lower LR on the output layer
+    # Train with higher LR as we go deeper into the NN
     LR = 1e-3
-    train_params = [
-      {'params': self.get_layers(lambda x: self.output != x), 'lr': LR},
-      {'params': self.get_layers(lambda x: self.output == x), 'lr': LR / 10},
+     train_params = [
+      {'params': self.get_layers(lambda x: self.input == x), 'lr': LR },
+      {'params': self.get_layers(lambda x: self.l1 == x), 'lr': LR * 10 },
+      {'params': self.get_layers(lambda x: self.l2 == x), 'lr': LR * 10**2 },
+      {'params': self.get_layers(lambda x: self.output == x), 'lr': LR * 10**3 },
     ]
+
     # increasing the eps leads to less saturated nets with a few dead neurons
-    optimizer = ranger.Ranger(train_params, betas=(.9, 0.999), eps=1.0e-7)
-    # Drop learning rate after 75 epochs
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=75, gamma=0.3)
+    optimizer = ranger.Ranger(train_params, betas=(.9, 0.999), eps=1.0e-7) 
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[50, 100, 150, 200, 250, 300], gamma=0.5)
+
     return [optimizer], [scheduler]
 
   def get_layers(self, filt):
