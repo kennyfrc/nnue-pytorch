@@ -87,7 +87,7 @@ def main():
   print('Using log dir {}'.format(logdir), flush=True)
 
   tb_logger = pl_loggers.TensorBoardLogger(logdir)
-  earlystoppage_callback = pl.callbacks.early_stopping.EarlyStopping(monitor="val_loss", mode="min", patience=4)
+  earlystoppage_callback = pl.callbacks.early_stopping.EarlyStopping(monitor="val_loss", mode="min", patience=10)
   checkpoint_callback = pl.callbacks.ModelCheckpoint(save_top_k=100, mode="min", monitor="val_loss", filename='{epoch}-{val_loss:.4f}', dirpath='logs/run9')
   trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback, earlystoppage_callback], logger=tb_logger, max_epochs=350)
 
