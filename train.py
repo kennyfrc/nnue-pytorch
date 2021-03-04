@@ -89,9 +89,9 @@ def main():
   print('Using log dir {}'.format(logdir), flush=True)
 
   tb_logger = pl_loggers.TensorBoardLogger(logdir)
-  earlystoppage_callback = pl.callbacks.early_stopping.EarlyStopping(monitor="val_loss", mode="min", patience=10)
+  # earlystoppage_callback = pl.callbacks.early_stopping.EarlyStopping(monitor="val_loss", mode="min", patience=10)
   checkpoint_callback = pl.callbacks.ModelCheckpoint(save_top_k=100, mode="min", monitor="val_loss", filename='{epoch}-{val_loss:.4f}', dirpath='logs/{}'.format(args.folder_name))
-  trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback, earlystoppage_callback], logger=tb_logger, max_epochs=350)
+  trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback], logger=tb_logger, max_epochs=500)
 
   main_device = trainer.root_device if trainer.root_gpu is None else 'cuda:' + str(trainer.root_gpu)
 
@@ -102,12 +102,10 @@ def main():
     print('Using c++ data loader')
     train, val = data_loader_cc(args.train, args.val, feature_set, args.num_workers, batch_size, args.smart_fen_skipping, args.random_fen_skipping, main_device)
 
-  lr_finder = trainer.tuner.lr_find(nnue, train, val, mode="linear", max_lr=1e-2)
+  # lr_finder = trainer.tuner.lr_find(nnue, train, val)
+  # a0 numbers
+  nnue.lr_ = 8e-1 
 
-  suggested_lr = lr_finder.suggestion()
-  print("suggested learning rate: {}".format(suggested_lr))
-
-  nnue.lr_ = suggested_lr
   trainer.fit(nnue, train, val)
 
 if __name__ == '__main__':
