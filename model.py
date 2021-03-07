@@ -141,16 +141,16 @@ class NNUE(pl.LightningModule):
       {'params': self.get_layers(lambda x: self.input == x), 'lr': LR },
       {'params': self.get_layers(lambda x: self.l1 == x), 'lr': LR },
       {'params': self.get_layers(lambda x: self.l2 == x), 'lr': LR },
-      {'params': self.get_layers(lambda x: self.output == x), 'lr': LR },
+      {'params': self.get_layers(lambda x: self.output == x), 'lr': LR * 10 },
     ]
 
     # increasing the eps leads to less saturated nets with a few dead neurons
     # add weight decay so that there is less likelihood of distorted weights
-    optimizer = ranger.Ranger(train_params, weight_decay=0.1)
+    optimizer = ranger.Ranger(train_params)
     # optimizer = torch.optim.SGD(train_params, weight_decay=0.1)
     # optimizer = torch.optim.Adam(train_params)
     # 60 because epoch_size * T_0 == dataset size
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=60, verbose=True)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=100, verbose=True)
 
     return [optimizer], [scheduler]
 

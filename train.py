@@ -104,7 +104,7 @@ def main():
 
   # lr_finder = trainer.tuner.lr_find(nnue, train, val)
   # a0 numbers
-  nnue.lr_ = 8e-1 
+  nnue.lr_ = 1e-3 
 
   trainer.fit(nnue, train, val)
 
