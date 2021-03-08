@@ -156,8 +156,6 @@ class NNUE(pl.LightningModule):
 
 
   def configure_optimizers(self):
-    # lambda 1 settings: LR, LR, LR, LR*10
-    # lambda <1 settings: discriminative finetuning starting with LR and output layer
     LRs = self.lrs_
 
     train_params = [
@@ -167,12 +165,7 @@ class NNUE(pl.LightningModule):
       {'params': self.get_layers(lambda x: self.output == x), 'lr': LRs[3] },
     ]
 
-    # increasing the eps leads to less saturated nets with a few dead neurons
-    # add weight decay so that there is less likelihood of distorted weights
     optimizer = ranger.Ranger(train_params)
-    # optimizer = torch.optim.SGD(train_params, weight_decay=0.1)
-    # optimizer = torch.optim.Adam(train_params)
-    # 60 because epoch_size * T_0 == dataset size
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=100, verbose=True)
 
     return [optimizer], [scheduler]

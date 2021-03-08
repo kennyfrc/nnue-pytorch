@@ -42,6 +42,8 @@ def main():
   parser.add_argument("--folder-name", default="run", type=str, dest='folder_name', help="Folder name for your checkpoints")
   parser.add_argument("--threads", default=-1, type=int, dest='threads', help="Number of torch threads to use. Default automatic (cores) .")
   parser.add_argument("--seed", default=42, type=int, dest='seed', help="torch seed to use.")
+  parser.add_argument("--max-epochs", default=500, type=int, dest='max_epochs', help="maximum epochs to use.")
+  parser.add_argument("--lrs", default="1e-3,1e-3,1e-3,1e-4", type=lambda lrs: [float(item) for item in lrs.split(',')], dest='lrs', help="learning rates per layer.")
   parser.add_argument("--smart-fen-skipping", action='store_true', dest='smart_fen_skipping', help="If enabled positions that are bad training targets will be skipped during loading. Default: False")
   parser.add_argument("--random-fen-skipping", default=0, type=int, dest='random_fen_skipping', help="skip fens randomly on average random_fen_skipping before using one.")
   parser.add_argument("--resume-from-model", dest='resume_from_model', help="Initializes training using the weights from the given .pt model")
@@ -55,8 +57,7 @@ def main():
 
   feature_set = features.get_feature_set_from_name(args.features)
 
-  LRs = [ 1e-4, 1e-4, 1e-4, 1e-3 ]
-
+  LRs = args.lrs
 
   if args.resume_from_model is None:
     nnue = M.NNUE(feature_set=feature_set, lambda_=args.lambda_, lrs_=LRs)
@@ -70,6 +71,7 @@ def main():
   print("Num real features: {}".format(feature_set.num_real_features))
   print("Num virtual features: {}".format(feature_set.num_virtual_features))
   print("Num features: {}".format(feature_set.num_features))
+  print("Max epochs: {}".format(args.max_epochs))
 
   print("Training with {} validating with {}".format(args.train, args.val))
 
@@ -93,7 +95,7 @@ def main():
 
   tb_logger = pl_loggers.TensorBoardLogger(logdir)
   checkpoint_callback = pl.callbacks.ModelCheckpoint(save_top_k=30, mode="min", monitor="val_loss", filename='{epoch}-{val_loss:.4f}', dirpath='logs/{}'.format(args.folder_name))
-  trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback], logger=tb_logger, max_epochs=300)
+  trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback], logger=tb_logger, max_epochs=args.max_epochs)
 
   main_device = trainer.root_device if trainer.root_gpu is None else 'cuda:' + str(trainer.root_gpu)
 
@@ -103,10 +105,6 @@ def main():
   else:
     print('Using c++ data loader')
     train, val = data_loader_cc(args.train, args.val, feature_set, args.num_workers, batch_size, args.smart_fen_skipping, args.random_fen_skipping, main_device)
-
-  # lr_finder = trainer.tuner.lr_find(nnue, train, val)
-  
-  nnue.lrs_ = LRs
 
   trainer.fit(nnue, train, val)
 
