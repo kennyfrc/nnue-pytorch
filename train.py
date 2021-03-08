@@ -55,13 +55,16 @@ def main():
 
   feature_set = features.get_feature_set_from_name(args.features)
 
+  LRs = [ 1e-4, 1e-4, 1e-4, 1e-3 ]
+
+
   if args.resume_from_model is None:
-    nnue = M.NNUE(feature_set=feature_set, lambda_=args.lambda_, lr_=1e-3)
+    nnue = M.NNUE(feature_set=feature_set, lambda_=args.lambda_, lrs_=LRs)
   else:
     nnue = torch.load(args.resume_from_model)
     nnue.set_feature_set(feature_set)
     nnue.lambda_ = args.lambda_
-    nnue.lr_ = 1e-3
+    nnue.lrs_ = LRs
 
   print("Feature set: {}".format(feature_set.name))
   print("Num real features: {}".format(feature_set.num_real_features))
@@ -89,9 +92,8 @@ def main():
   print('Using log dir {}'.format(logdir), flush=True)
 
   tb_logger = pl_loggers.TensorBoardLogger(logdir)
-  # earlystoppage_callback = pl.callbacks.early_stopping.EarlyStopping(monitor="val_loss", mode="min", patience=10)
-  checkpoint_callback = pl.callbacks.ModelCheckpoint(save_top_k=100, mode="min", monitor="val_loss", filename='{epoch}-{val_loss:.4f}', dirpath='logs/{}'.format(args.folder_name))
-  trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback], logger=tb_logger, max_epochs=500)
+  checkpoint_callback = pl.callbacks.ModelCheckpoint(save_top_k=30, mode="min", monitor="val_loss", filename='{epoch}-{val_loss:.4f}', dirpath='logs/{}'.format(args.folder_name))
+  trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback], logger=tb_logger, max_epochs=300)
 
   main_device = trainer.root_device if trainer.root_gpu is None else 'cuda:' + str(trainer.root_gpu)
 
@@ -103,8 +105,8 @@ def main():
     train, val = data_loader_cc(args.train, args.val, feature_set, args.num_workers, batch_size, args.smart_fen_skipping, args.random_fen_skipping, main_device)
 
   # lr_finder = trainer.tuner.lr_find(nnue, train, val)
-  # a0 numbers
-  nnue.lr_ = 1e-3 
+  
+  nnue.lrs_ = LRs
 
   trainer.fit(nnue, train, val)
 

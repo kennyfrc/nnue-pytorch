@@ -20,7 +20,7 @@ class NNUE(pl.LightningModule):
 
   It is not ideal for training a Pytorch quantized model directly.
   """
-  def __init__(self, feature_set, lambda_=1.0, lr_=1e-3):
+  def __init__(self, feature_set, lambda_=1.0, lrs_=[1e-3,1e-3,1e-3,1e-4]):
     super(NNUE, self).__init__()
     self.input = nn.Linear(feature_set.num_features, L1)
     self.feature_set = feature_set
@@ -28,7 +28,7 @@ class NNUE(pl.LightningModule):
     self.l2 = nn.Linear(L2, L3)
     self.output = nn.Linear(L3, 1)
     self.lambda_ = lambda_
-    self.lr_ = lr_
+    self.lrs_ = lrs_
     self._zero_virtual_feature_weights()
 
   '''
@@ -133,15 +133,38 @@ class NNUE(pl.LightningModule):
   def test_step(self, batch, batch_idx):
     self.step_(batch, batch_idx, 'test_loss')
 
+  def on_load_checkpoint(self, checkpoint):
+    LRs = self.lrs_
+
+    lr_schedulers = checkpoint['lr_schedulers'][0]
+
+    # reset
+    checkpoint['epoch'] = 0
+    checkpoint['global_step'] = 0
+    lr_schedulers['base_lrs'] = LRs
+    lr_schedulers['last_lrs'] = LRs 
+    lr_schedulers['last_epoch'] = 0
+
+    # assume cosine annealing LR
+    lr_schedulers['T_cur'] = 0
+
+    param_groups = checkpoint['optimizer_states'][0]['param_groups']
+    
+    for idx, param_group in enumerate(param_groups):
+        param_group['lr'] = LRs[idx]
+        param_group['initial_lr'] = LRs[idx]
+
+
   def configure_optimizers(self):
-    # Train with higher LR as we go deeper into the NN
-    LR = self.lr_ 
-  
+    # lambda 1 settings: LR, LR, LR, LR*10
+    # lambda <1 settings: discriminative finetuning starting with LR and output layer
+    LRs = self.lrs_
+
     train_params = [
-      {'params': self.get_layers(lambda x: self.input == x), 'lr': LR },
-      {'params': self.get_layers(lambda x: self.l1 == x), 'lr': LR },
-      {'params': self.get_layers(lambda x: self.l2 == x), 'lr': LR },
-      {'params': self.get_layers(lambda x: self.output == x), 'lr': LR * 10 },
+      {'params': self.get_layers(lambda x: self.input == x), 'lr': LRs[0] },
+      {'params': self.get_layers(lambda x: self.l1 == x), 'lr': LRs[1] },
+      {'params': self.get_layers(lambda x: self.l2 == x), 'lr': LRs[2] },
+      {'params': self.get_layers(lambda x: self.output == x), 'lr': LRs[3] },
     ]
 
     # increasing the eps leads to less saturated nets with a few dead neurons
