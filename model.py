@@ -113,11 +113,10 @@ class NNUE(pl.LightningModule):
     z_score = outcome
     q_score = (score / scaling).sigmoid()
 
-    # interpolated score
-    # reinforce score if it's correct
-    i_score = (p_score * self.lambda_) + (z_score * (1 - self.lambda_))
+    # teacher score
+    t_score = (q_score * self.lambda_) + (z_score * (1 - self.lambda_))
 
-    loss = F.mse_loss(i_score, q_score)
+    loss = F.mse_loss(p_score, t_score)
     self.log(loss_type, loss)
 
     return loss
