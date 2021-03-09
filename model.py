@@ -114,7 +114,16 @@ class NNUE(pl.LightningModule):
     q_score = (score / scaling).sigmoid()
 
     # teacher score
-    t_score = (q_score * self.lambda_) + (z_score * (1 - self.lambda_))
+    # only care about z when the outcome is a win/loss
+    # if there is a win/loss, only then shall you train against it
+    if self.lambda_ < 1:
+      t_score = torch.where(
+        torch.logical_or(z_score.eq(1.0),z_score.eq(0.0)),
+        (q_score * self.lambda_) + (z_score * (1.0 - self.lambda_)),
+        q_score
+      )
+    else:
+      t_score = q_score
 
     loss = F.mse_loss(p_score, t_score)
     self.log(loss_type, loss)
