@@ -41,8 +41,9 @@ class NNUE(pl.LightningModule):
   '''
   def _zero_virtual_feature_weights(self):
     weights = self.input.weight
-    with torch.no_grad():
-      for a, b in self.feature_set.get_virtual_feature_ranges():
+    
+    for a, b in self.feature_set.get_virtual_feature_ranges(): 
+      with torch.no_grad():
         weights[:, a:b] = 0.0
     self.input.weight = nn.Parameter(weights)
 
@@ -99,30 +100,45 @@ class NNUE(pl.LightningModule):
   def step_(self, batch, batch_idx, loss_type):
     us, them, white, black, outcome, score = batch
 
+    # MSE Loss
+    
     # 600 is the kPonanzaConstant scaling factor needed to convert the training net output to a score.
     # This needs to match the value used in the serializer
+    # It just works
     nnue2score = 600
     scaling = 361
 
-    q = self(us, them, white, black) * nnue2score / scaling
-    t = outcome
-    p = (score / scaling).sigmoid()
+    # predicted, outcome, teacher scores (in order)
+    p_score = (self(us, them, white, black) * nnue2score / scaling).sigmoid()
+    z_score = outcome
+    q_score = (score / scaling).sigmoid()
 
-    epsilon = 1e-12
-    teacher_entropy = -(p * (p + epsilon).log() + (1.0 - p) * (1.0 - p + epsilon).log())
-    outcome_entropy = -(t * (t + epsilon).log() + (1.0 - t) * (1.0 - t + epsilon).log())
-    teacher_loss = -(p * F.logsigmoid(q) + (1.0 - p) * F.logsigmoid(-q))
-    outcome_loss = -(t * F.logsigmoid(q) + (1.0 - t) * F.logsigmoid(-q))
-    result  = self.lambda_ * teacher_loss    + (1.0 - self.lambda_) * outcome_loss
-    entropy = self.lambda_ * teacher_entropy + (1.0 - self.lambda_) * outcome_entropy
-    loss = result.mean() - entropy.mean()
+    # interpolated score
+    # reinforce score if it's correct
+    i_score = (p_score * self.lambda_) + (z_score * (1 - self.lambda_))
+
+    loss = F.mse_loss(i_score, q_score)
     self.log(loss_type, loss)
+
     return loss
 
-    # MSE Loss function for debugging
-    # Scale score by 600.0 to match the expected NNUE scaling factor
-    # output = self(us, them, white, black) * 600.0
-    # loss = F.mse_loss(output, score)
+
+    # Cross-Entropy Loss
+
+    # q = self(us, them, white, black) * nnue2score / scaling
+    # t = outcome
+    # p = (t_score / scaling).sigmoid()
+
+    # epsilon = 1e-12
+    # teacher_entropy = -(p * (p + epsilon).log() + (1.0 - p) * (1.0 - p + epsilon).log())
+    # outcome_entropy = -(t * (t + epsilon).log() + (1.0 - t) * (1.0 - t + epsilon).log())
+    # teacher_loss = -(p * F.logsigmoid(q) + (1.0 - p) * F.logsigmoid(-q))
+    # outcome_loss = -(t * F.logsigmoid(q) + (1.0 - t) * F.logsigmoid(-q))
+    # result  = self.lambda_ * teacher_loss    + (1.0 - self.lambda_) * outcome_loss
+    # entropy = self.lambda_ * teacher_entropy + (1.0 - self.lambda_) * outcome_entropy
+    # loss = result.mean() - entropy.mean()
+    # self.log(loss_type, loss)
+    # return loss
 
   def training_step(self, batch, batch_idx):
     return self.step_(batch, batch_idx, 'train_loss')
