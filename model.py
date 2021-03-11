@@ -1,3 +1,4 @@
+import math
 import chess
 import ranger
 import torch
@@ -20,7 +21,7 @@ class NNUE(pl.LightningModule):
 
   It is not ideal for training a Pytorch quantized model directly.
   """
-  def __init__(self, feature_set, lambda_=1.0, lrs_=[1e-3,1e-3,1e-3,1e-4]):
+  def __init__(self, feature_set, lambda_=1.0, lrs_=[1e-3,1e-3,1e-3,1e-4], finetune=False):
     super(NNUE, self).__init__()
     self.input = nn.Linear(feature_set.num_features, L1)
     self.feature_set = feature_set
@@ -29,7 +30,30 @@ class NNUE(pl.LightningModule):
     self.output = nn.Linear(L3, 1)
     self.lambda_ = lambda_
     self.lrs_ = lrs_
+    self.finetune = finetune
+
+    self._initialize_feature_weights()
     self._zero_virtual_feature_weights()
+    self._initialize_affine(self.l1)
+    self._initialize_affine(self.l2)
+    self._initialize_output()
+
+  def _initialize_feature_weights(self):
+    std = 0.1 / math.sqrt(30)
+    nn.init.normal_(self.input.weight, 0.0, std)
+    nn.init.uniform_(self.input.bias, 0.5, 0.5)
+
+  def _initialize_affine(self, layer):
+    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(layer.weight)
+    std = 0.5 / math.sqrt(fan_in)
+    nn.init.normal_(layer.weight, 0.0, std)
+    bias = 0.5 - 0.5 * torch.sum(layer.weight, 1)
+    layer.bias = nn.Parameter(bias)
+
+  def _initialize_output(self):
+    nn.init.uniform_(self.output.bias, 0.0, 0.0)
+    std = 1.0 / math.sqrt(L3)
+    nn.init.normal_(self.output.weight, 0.0, std)
 
   '''
   We zero all virtual feature weights because during serialization to .nnue
@@ -97,7 +121,14 @@ class NNUE(pl.LightningModule):
     x = self.output(l2_)
     return x
 
-  def step_(self, batch, batch_idx, loss_type):
+  def on_after_backward(self):
+    w = self.input.weight
+    g = w.grad
+    a = self.feature_set.features[0].get_factor_base_feature('HalfK')
+    b = self.feature_set.features[0].get_factor_base_feature('P')
+    g[:, a:b] /= 30.0
+
+  def step_(self, batch, batch_idx, loss_type):    
     us, them, white, black, outcome, score = batch
 
     # MSE Loss
@@ -158,25 +189,27 @@ class NNUE(pl.LightningModule):
     self.step_(batch, batch_idx, 'test_loss')
 
   def on_load_checkpoint(self, checkpoint):
-    LRs = self.lrs_
+    if self.finetune:
+      LRs = self.lrs_
 
-    lr_schedulers = checkpoint['lr_schedulers'][0]
+      lr_schedulers = checkpoint['lr_schedulers'][0]
 
-    # reset
-    checkpoint['epoch'] = 0
-    checkpoint['global_step'] = 0
-    lr_schedulers['base_lrs'] = LRs
-    lr_schedulers['last_lrs'] = LRs 
-    lr_schedulers['last_epoch'] = 0
+      # reset
+      checkpoint['epoch'] = 0
+      checkpoint['global_step'] = 0
+      lr_schedulers['base_lrs'] = LRs
+      lr_schedulers['last_lrs'] = LRs 
+      lr_schedulers['last_epoch'] = 0
 
-    # assume cosine annealing LR
-    lr_schedulers['T_cur'] = 0
+      # assume cosine annealing LR
+      lr_schedulers['T_cur'] = 0
+      lr_schedulers['T_0'] = 10
 
-    param_groups = checkpoint['optimizer_states'][0]['param_groups']
-    
-    for idx, param_group in enumerate(param_groups):
-        param_group['lr'] = LRs[idx]
-        param_group['initial_lr'] = LRs[idx]
+      param_groups = checkpoint['optimizer_states'][0]['param_groups']
+      
+      for idx, param_group in enumerate(param_groups):
+          param_group['lr'] = LRs[idx]
+          param_group['initial_lr'] = LRs[idx]
 
 
   def configure_optimizers(self):

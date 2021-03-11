@@ -45,6 +45,7 @@ def main():
   parser.add_argument("--max-epochs", default=500, type=int, dest='max_epochs', help="maximum epochs to use.")
   parser.add_argument("--lrs", default="1e-3,1e-3,1e-3,1e-4", type=lambda lrs: [float(item) for item in lrs.split(',')], dest='lrs', help="learning rates per layer.")
   parser.add_argument("--smart-fen-skipping", action='store_true', dest='smart_fen_skipping', help="If enabled positions that are bad training targets will be skipped during loading. Default: False")
+  parser.add_argument("--finetune", action='store_true', dest='finetune', help="Check resuming from a checkpoint, reset lr_scheduler and epoch to 0. Default: False")
   parser.add_argument("--random-fen-skipping", default=0, type=int, dest='random_fen_skipping', help="skip fens randomly on average random_fen_skipping before using one.")
   parser.add_argument("--resume-from-model", dest='resume_from_model', help="Initializes training using the weights from the given .pt model")
   features.add_argparse_args(parser)
@@ -60,7 +61,7 @@ def main():
   LRs = args.lrs
 
   if args.resume_from_model is None:
-    nnue = M.NNUE(feature_set=feature_set, lambda_=args.lambda_, lrs_=LRs)
+    nnue = M.NNUE(feature_set=feature_set, lambda_=args.lambda_, lrs_=LRs, finetune=args.finetune)
   else:
     nnue = torch.load(args.resume_from_model)
     nnue.set_feature_set(feature_set)
