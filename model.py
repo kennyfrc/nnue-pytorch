@@ -200,29 +200,38 @@ class NNUE(pl.LightningModule):
     
     outcome_entropy = -(t * (t + epsilon).log() + (1.0 - t) * (1.0 - t + epsilon).log())
     outcome_loss = -(t * F.logsigmoid(q) + (1.0 - t) * F.logsigmoid(-q))
-
-    def get_means(lambda_, t_loss, o_loss, t_entropy, o_entropy, drawn_game):
+    
+    def get_result(lambda_, t_loss, o_loss, drawn_game):
       if drawn_game:
         result  = teacher_loss    
-        entropy = teacher_entropy
       else:
         result  = self.lambda_ * teacher_loss    + (1.0 - self.lambda_) * outcome_loss
+      return result
+
+    def get_entropy(lambda_, t_entropy, o_entropy, drawn_game):
+      if drawn_game:
+        entropy = teacher_entropy
+      else:
         entropy = self.lambda_ * teacher_entropy + (1.0 - self.lambda_) * outcome_entropy
-      return result.mean(), entropy.mean()
+      return entropy
 
     if self.lambda_ != 1.0:
-      result, entropy = torch.where(
+      result = torch.where(
         torch.logical_or(t.eq(1.0),t.eq(0.0)),
-         get_means(self.lambda_, teacher_loss, outcome_loss,
-                                    teacher_entropy, outcome_entropy, drawn_game=False),
-         get_means(self.lambda_, teacher_loss, outcome_loss,
-                                    teacher_entropy, outcome_entropy, drawn_game=True)
+        get_result(self.lambda_, teacher_loss, outcome_loss, drawn_game=False),
+        get_result(self.lambda_, teacher_loss, outcome_loss, drawn_game=True)
+      )
+      entropy = torch.where(
+        torch.logical_or(t.eq(1.0),t.eq(0.0)),
+        get_entropy(self.lambda_, teacher_entropy, outcome_entropy, drawn_game=False),
+        get_entropy(self.lambda_, teacher_entropy, outcome_entropy, drawn_game=True)
       )
     else:
-      result  = teacher_loss.mean()
-      entropy = teacher_entropy.mean()
+      result  = teacher_loss
+      entropy = teacher_entropy
     
-    loss = result - entropy
+    loss = result.mean() - entropy.mean()
+
     self.log(loss_type, loss)
 
     return loss
