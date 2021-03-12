@@ -24,6 +24,16 @@ class NNUE(pl.LightningModule):
   def __init__(self, feature_set, lambda_=1.0, lrs_=[1e-3,1e-3,1e-3,1e-4], finetune=False):
     super(NNUE, self).__init__()
     self.input = nn.Linear(feature_set.num_features, L1)
+    
+    weights = self.input.weight.clone()
+    kMaxActiveDimensions = 30 # kings don't count
+    kSigma = 0.1 / math.sqrt(kMaxActiveDimensions)
+    weights = weights.normal_(0.0, kSigma)
+    biases = self.input.bias
+    biases = biases.clone().fill_(0.5)
+    self.input.weight = nn.Parameter(weights)
+    self.input.bias = nn.Parameter(biases)
+
     self.feature_set = feature_set
     self.l1 = nn.Linear(2 * L1, L2)
     self.l2 = nn.Linear(L2, L3)
@@ -32,28 +42,7 @@ class NNUE(pl.LightningModule):
     self.lrs_ = lrs_
     self.finetune = finetune
 
-    self._initialize_feature_weights()
     self._zero_virtual_feature_weights()
-    self._initialize_affine(self.l1)
-    self._initialize_affine(self.l2)
-    self._initialize_output()
-
-  def _initialize_feature_weights(self):
-    std = 0.1 / math.sqrt(30)
-    nn.init.normal_(self.input.weight, 0.0, std)
-    nn.init.uniform_(self.input.bias, 0.5, 0.5)
-
-  def _initialize_affine(self, layer):
-    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(layer.weight)
-    std = 0.5 / math.sqrt(fan_in)
-    nn.init.normal_(layer.weight, 0.0, std)
-    bias = 0.5 - 0.5 * torch.sum(layer.weight, 1)
-    layer.bias = nn.Parameter(bias)
-
-  def _initialize_output(self):
-    nn.init.uniform_(self.output.bias, 0.0, 0.0)
-    std = 1.0 / math.sqrt(L3)
-    nn.init.normal_(self.output.weight, 0.0, std)
 
   '''
   We zero all virtual feature weights because during serialization to .nnue
@@ -66,9 +55,9 @@ class NNUE(pl.LightningModule):
   def _zero_virtual_feature_weights(self):
     weights = self.input.weight
     
-    for a, b in self.feature_set.get_virtual_feature_ranges(): 
-      with torch.no_grad():
-        weights[:, a:b] = 0.0
+    with torch.no_grad():
+        for a, b in self.feature_set.get_virtual_feature_ranges(): 
+            weights[:, a:b] = 0.0
     self.input.weight = nn.Parameter(weights)
 
   '''
@@ -131,53 +120,71 @@ class NNUE(pl.LightningModule):
   def step_(self, batch, batch_idx, loss_type):    
     us, them, white, black, outcome, score = batch
 
-    # MSE Loss
-    
     # 600 is the kPonanzaConstant scaling factor needed to convert the training net output to a score.
     # This needs to match the value used in the serializer
     # It just works
     nnue2score = 600
-    scaling = 361
+    pawnValueEg = 208
+    scaling = pawnValueEg * 4 * math.log(10)
 
-    # predicted, outcome, teacher scores (in order)
-    p_score = (self(us, them, white, black) * nnue2score / scaling).sigmoid()
-    z_score = outcome
-    q_score = (score / scaling).sigmoid()
+    # # MSE Loss for debugging
+    # # predicted, outcome, teacher scores (in order)
+    # p_score = (self(us, them, white, black) * nnue2score / scaling).sigmoid()
+    # z_score = outcome
+    # q_score = (score / scaling).sigmoid()
 
-    # teacher score
-    # only care about z when the outcome is a win/loss
-    # if there is a win/loss, only then shall you train against it
+    # # teacher score
+    # # only care about z when the outcome is a win/loss
+    # # if there is a win/loss, only then shall you train against it
+    # if self.lambda_ < 1:
+    #   t_score = torch.where(
+    #     torch.logical_or(z_score.eq(1.0),z_score.eq(0.0)),
+    #     (q_score * self.lambda_) + (z_score * (1.0 - self.lambda_)),
+    #     q_score
+    #   )
+    # else:
+    #   t_score = q_score
+
+    # loss = F.mse_loss(p_score, t_score)
+    # self.log(loss_type, "mse_loss")
+
+    # Cross-Entropy Loss
+    q = self(us, them, white, black) * nnue2score / scaling
+    t = outcome
+    p = (score / scaling).sigmoid()
+
+    epsilon = 1e-12
+    teacher_entropy = -(p * (p + epsilon).log() + (1.0 - p) * (1.0 - p + epsilon).log())
+    teacher_loss = -(p * F.logsigmoid(q) + (1.0 - p) * F.logsigmoid(-q))
+    
+    outcome_entropy = -(t * (t + epsilon).log() + (1.0 - t) * (1.0 - t + epsilon).log())
+    outcome_loss = -(t * F.logsigmoid(q) + (1.0 - t) * F.logsigmoid(-q))
+
+    def get_means(lambda_, t_loss, o_loss, t_entropy, o_entropy, drawn_game):
+      if drawn_game:
+        result  = teacher_loss    
+        entropy = teacher_entropy
+      else:
+        result  = self.lambda_ * teacher_loss    + (1.0 - self.lambda_) * outcome_loss
+        entropy = self.lambda_ * teacher_entropy + (1.0 - self.lambda_) * outcome_entropy
+      return result.mean(), entropy.mean()
+
     if self.lambda_ < 1:
-      t_score = torch.where(
-        torch.logical_or(z_score.eq(1.0),z_score.eq(0.0)),
-        (q_score * self.lambda_) + (z_score * (1.0 - self.lambda_)),
-        q_score
+      result, entropy = torch.where(
+        torch.logical_or(t.eq(1.0),t.eq(0.0)),
+         get_means(self.lambda_, teacher_loss, outcome_loss,
+                                    teacher_entropy, outcome_entropy, drawn_game=False),
+         get_means(self.lambda_, teacher_loss, outcome_loss,
+                                    teacher_entropy, outcome_entropy, drawn_game=True)
       )
     else:
-      t_score = q_score
-
-    loss = F.mse_loss(p_score, t_score)
+      result  = teacher_loss.mean()
+      entropy = teacher_entropy.mean()
+    
+    loss = result - entropy
     self.log(loss_type, loss)
 
     return loss
-
-
-    # Cross-Entropy Loss
-
-    # q = self(us, them, white, black) * nnue2score / scaling
-    # t = outcome
-    # p = (t_score / scaling).sigmoid()
-
-    # epsilon = 1e-12
-    # teacher_entropy = -(p * (p + epsilon).log() + (1.0 - p) * (1.0 - p + epsilon).log())
-    # outcome_entropy = -(t * (t + epsilon).log() + (1.0 - t) * (1.0 - t + epsilon).log())
-    # teacher_loss = -(p * F.logsigmoid(q) + (1.0 - p) * F.logsigmoid(-q))
-    # outcome_loss = -(t * F.logsigmoid(q) + (1.0 - t) * F.logsigmoid(-q))
-    # result  = self.lambda_ * teacher_loss    + (1.0 - self.lambda_) * outcome_loss
-    # entropy = self.lambda_ * teacher_entropy + (1.0 - self.lambda_) * outcome_entropy
-    # loss = result.mean() - entropy.mean()
-    # self.log(loss_type, loss)
-    # return loss
 
   def training_step(self, batch, batch_idx):
     return self.step_(batch, batch_idx, 'train_loss')
