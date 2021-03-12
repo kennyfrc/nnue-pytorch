@@ -24,16 +24,6 @@ class NNUE(pl.LightningModule):
   def __init__(self, feature_set, lambda_=1.0, lrs_=[1e-3,1e-3,1e-3,1e-4], finetune=False):
     super(NNUE, self).__init__()
     self.input = nn.Linear(feature_set.num_features, L1)
-    
-    weights = self.input.weight.clone()
-    kMaxActiveDimensions = 30 # kings don't count
-    kSigma = 0.1 / math.sqrt(kMaxActiveDimensions)
-    weights = weights.normal_(0.0, kSigma)
-    biases = self.input.bias
-    biases = biases.clone().fill_(0.5)
-    self.input.weight = nn.Parameter(weights)
-    self.input.bias = nn.Parameter(biases)
-
     self.feature_set = feature_set
     self.l1 = nn.Linear(2 * L1, L2)
     self.l2 = nn.Linear(L2, L3)
@@ -41,8 +31,12 @@ class NNUE(pl.LightningModule):
     self.lambda_ = lambda_
     self.lrs_ = lrs_
     self.finetune = finetune
+    self.kMaxActiveDimensions = 30
 
-    self._zero_virtual_feature_weights()
+    self._initialize_feature_weights()
+    self._initialize_affine_l1()
+    self._initialize_affine_l2()
+    self._initialize_output()
 
   '''
   We zero all virtual feature weights because during serialization to .nnue
@@ -52,14 +46,54 @@ class NNUE(pl.LightningModule):
   we would end up with the real features having effectively unexpected values
   at initialization - following the bell curve based on how many factors there are.
   '''
-  def _zero_virtual_feature_weights(self):
-    weights = self.input.weight
-    
-    with torch.no_grad():
-        for a, b in self.feature_set.get_virtual_feature_ranges(): 
-            weights[:, a:b] = 0.0
+
+  def _initialize_feature_weights(self):
+    # initialize weights - normal distribution
+    weights = self.input.weight.clone()
+    kSigma = 0.1 / math.sqrt(self.kMaxActiveDimensions)
+    weights = weights.normal_(0.0, kSigma)
     self.input.weight = nn.Parameter(weights)
 
+    # initialize biases - uniform distribution
+    biases = self.input.bias
+    biases = biases.clone().fill_(0.5)
+    self.input.bias = nn.Parameter(biases)
+
+  def _initialize_affine_l1(self):
+    # initialize weights
+    weights = self.l1.weight.clone()
+    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.l1.weight)
+    std = 1.0 / math.sqrt(fan_in)
+    weights = weights.normal_(0.0, std)
+    self.l1.weight = nn.Parameter(weights)
+
+    # initialize biases
+    biases = 0.5 - 0.5 * torch.sum(self.l1.weight, 1)
+    self.l1.bias = nn.Parameter(biases)
+
+  def _initialize_affine_l2(self):
+    # initialize weights
+    weights = self.l2.weight.clone()
+    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.l2.weight)
+    std = 1.0 / math.sqrt(fan_in)
+    weights = weights.normal_(0.0, std)
+    self.l2.weight = nn.Parameter(weights)
+
+    # initialize biases
+    biases = 0.5 - 0.5 * torch.sum(self.l2.weight, 1)
+    self.l2.bias = nn.Parameter(biases)
+
+  def _initialize_output(self):
+    # initialize weights
+    weights = self.output.weight.clone()
+    weights = weights.clone().fill_(0.0)
+    self.output.weight = nn.Parameter(weights)
+    
+    # initialize biases
+    biases = self.output.bias
+    biases = biases.clone().fill_(0.0)
+    self.output.bias = nn.Parameter(biases)
+    
   '''
   This method attempts to convert the model from using the self.feature_set
   to new_feature_set.
@@ -115,7 +149,7 @@ class NNUE(pl.LightningModule):
     g = w.grad
     a = self.feature_set.features[0].get_factor_base_feature('HalfK')
     b = self.feature_set.features[0].get_factor_base_feature('P')
-    g[:, a:b] /= 30.0
+    g[:, a:b] /= self.kMaxActiveDimensions
 
   def step_(self, batch, batch_idx, loss_type):    
     us, them, white, black, outcome, score = batch
@@ -169,7 +203,7 @@ class NNUE(pl.LightningModule):
         entropy = self.lambda_ * teacher_entropy + (1.0 - self.lambda_) * outcome_entropy
       return result.mean(), entropy.mean()
 
-    if self.lambda_ < 1:
+    if self.lambda_ != 1.0:
       result, entropy = torch.where(
         torch.logical_or(t.eq(1.0),t.eq(0.0)),
          get_means(self.lambda_, teacher_loss, outcome_loss,
@@ -221,7 +255,7 @@ class NNUE(pl.LightningModule):
 
   def configure_optimizers(self):
     LRs = self.lrs_
-
+    
     train_params = [
       {'params': self.get_layers(lambda x: self.input == x), 'lr': LRs[0] },
       {'params': self.get_layers(lambda x: self.l1 == x), 'lr': LRs[1] },
@@ -245,3 +279,4 @@ class NNUE(pl.LightningModule):
           for p in i.parameters():
             if p.requires_grad:
               yield p
+
