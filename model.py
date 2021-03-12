@@ -34,6 +34,7 @@ class NNUE(pl.LightningModule):
     self.kMaxActiveDimensions = 30
 
     self._initialize_feature_weights()
+    self._zero_virtual_feature_weights()
     self._initialize_affine_l1()
     self._initialize_affine_l2()
     self._initialize_output()
@@ -46,6 +47,12 @@ class NNUE(pl.LightningModule):
   we would end up with the real features having effectively unexpected values
   at initialization - following the bell curve based on how many factors there are.
   '''
+  def _zero_virtual_feature_weights(self):
+    weights = self.input.weight
+    with torch.no_grad():
+        for a, b in self.feature_set.get_virtual_feature_ranges():
+            weights[:, a:b] = 0.0
+    self.input.weight = nn.Parameter(weights)
 
   def _initialize_feature_weights(self):
     # initialize weights - normal distribution
