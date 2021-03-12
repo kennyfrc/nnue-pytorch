@@ -32,6 +32,7 @@ class NNUE(pl.LightningModule):
     self.lrs_ = lrs_
     self.finetune = finetune
     self.kMaxActiveDimensions = 30
+    self.activePieces = self.kMaxActiveDimensions
 
     self._initialize_feature_weights()
     self._zero_virtual_feature_weights()
@@ -156,10 +157,19 @@ class NNUE(pl.LightningModule):
     g = w.grad
     a = self.feature_set.features[0].get_factor_base_feature('HalfK')
     b = self.feature_set.features[0].get_factor_base_feature('P')
-    g[:, a:b] /= self.kMaxActiveDimensions
+    g[:, a:b] /= self.activePieces
 
   def step_(self, batch, batch_idx, loss_type):    
     us, them, white, black, outcome, score = batch
+
+    # rough calculation of active pieces
+    # this is for the gradient scale
+    # evals from https://hxim.github.io/Stockfish-Evaluation-Guide/
+    sfEval = 2682 + 1380 + 915 + 854 + 206
+    pieceFactor = sfEval / self.kMaxActiveDimensions
+    teacherScore = torch.clamp(score, min=-sfEval, max=sfEval)
+    teacherEval = torch.where(score.gt(0), teacherScore, -teacherScore)
+    self.activePieces = int((sfEval - teacherEval.mean()) / pieceFactor)
 
     # 600 is the kPonanzaConstant scaling factor needed to convert the training net output to a score.
     # This needs to match the value used in the serializer
