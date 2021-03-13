@@ -12,8 +12,8 @@ from torch.utils.data import DataLoader, Dataset
 
 def data_loader_cc(train_filename, val_filename, feature_set, num_workers, batch_size, filtered, random_fen_skipping, main_device):
   # Epoch and validation sizes are arbitrary
-  epoch_size = 100000000
-  val_size = 1000000
+  epoch_size = 1000000
+  val_size = 100000
   features_name = feature_set.name
   train_infinite = nnue_dataset.SparseBatchDataset(features_name, train_filename, batch_size, num_workers=num_workers,
                                                    filtered=filtered, random_fen_skipping=random_fen_skipping, device=main_device)
@@ -96,7 +96,8 @@ def main():
 
   tb_logger = pl_loggers.TensorBoardLogger(logdir)
   checkpoint_callback = pl.callbacks.ModelCheckpoint(save_top_k=30, mode="min", monitor="val_loss", filename='{epoch}-{val_loss:.5f}', dirpath='logs/{}'.format(args.folder_name))
-  trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback], logger=tb_logger, max_epochs=args.max_epochs)
+  lr_callback = pl.callbacks.LearningRateMonitor(logging_interval='epoch')
+  trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback, lr_callback], logger=tb_logger, max_epochs=args.max_epochs)
 
   main_device = trainer.root_device if trainer.root_gpu is None else 'cuda:' + str(trainer.root_gpu)
 

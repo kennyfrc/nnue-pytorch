@@ -249,10 +249,15 @@ class NNUE(pl.LightningModule):
       {'params': self.get_layers(lambda x: self.output == x), 'lr': LRs[3] },
     ]
 
-    optimizer = ranger.Ranger(train_params)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=100, verbose=True)
+    # optimizer = ranger.Ranger(train_params)
+    optimizer = torch.optim.SGD(train_params)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=4, verbose=True)
+    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=100, verbose=True)
 
-    return [optimizer], [scheduler]
+    return { 'optimizer': optimizer,
+             'lr_scheduler': scheduler,
+             'monitor': 'val_loss'
+           }
 
   def get_layers(self, filt):
     """
