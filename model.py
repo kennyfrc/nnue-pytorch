@@ -32,6 +32,7 @@ class NNUE(pl.LightningModule):
     self.lrs_ = lrs_
     self.finetune = finetune
     self.kMaxActiveDimensions = 30
+    self.avgActivePieces = self.kMaxActiveDimensions - (40.04 * 0.24) # avg moves per game - avg captures per move
 
     self._initialize_feature_weights()
     self._zero_virtual_feature_weights()
@@ -125,7 +126,7 @@ class NNUE(pl.LightningModule):
     g = w.grad
     a = self.feature_set.features[0].get_factor_base_feature('HalfK')
     b = self.feature_set.features[0].get_factor_base_feature('P')
-    g[:, a:b] /= self.kMaxActiveDimensions
+    g[:, a:b] /= self.avgActivePieces
 
   def step_(self, batch, batch_idx, loss_type):    
     us, them, white, black, outcome, score = batch
