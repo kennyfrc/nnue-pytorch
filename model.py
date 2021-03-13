@@ -31,14 +31,11 @@ class NNUE(pl.LightningModule):
     self.lambda_ = lambda_
     self.lrs_ = lrs_
     self.finetune = finetune
-    self.kMaxActiveDimensions = 30
-    self.avgActivePieces = self.kMaxActiveDimensions - (40.04 * 0.24) # avg moves per game - avg captures per move
 
-    self._initialize_feature_weights()
+    # kActiveDimensions - avg moves per game - avg captures per move
+    self.avgActivePieces = 30 - (40.04 * 0.24) 
+
     self._zero_virtual_feature_weights()
-    self._initialize_affine_l1()
-    self._initialize_affine_l2()
-    self._initialize_output()
 
   '''
   We zero all virtual feature weights because during serialization to .nnue
@@ -55,22 +52,6 @@ class NNUE(pl.LightningModule):
             weights[:, a:b] = 0.0
     self.input.weight = nn.Parameter(weights)
 
-  def _initialize_feature_weights(self):
-    nn.init.kaiming_normal_(self.input.weight, nonlinearity='relu')
-    nn.init.uniform_(self.input.bias, 0.0, 0.0)
-
-  def _initialize_affine_l1(self):
-    nn.init.kaiming_normal_(self.l1.weight, nonlinearity='relu')
-    nn.init.uniform_(self.l1.bias, 0.0, 0.0)
-
-  def _initialize_affine_l2(self):
-    nn.init.kaiming_normal_(self.l2.weight, nonlinearity='relu')
-    nn.init.uniform_(self.l2.bias, 0.0, 0.0)
-
-  def _initialize_output(self):
-    nn.init.kaiming_normal_(self.output.weight, nonlinearity='relu')
-    nn.init.uniform_(self.output.bias, 0.0, 0.0)
-    
   '''
   This method attempts to convert the model from using the self.feature_set
   to new_feature_set.
@@ -224,14 +205,15 @@ class NNUE(pl.LightningModule):
       # reset
       checkpoint['epoch'] = 0
       checkpoint['global_step'] = 0
+
+      lr_schedulers['factor'] = 0.5
+      lr_schedulers['patience'] = 4
+      lr_schedulers['best'] = 1
+      lr_schedulers['last_epoch'] = -1
+      lr_schedulers['_last_lr'] = LRs
       lr_schedulers['base_lrs'] = LRs
-      lr_schedulers['last_lrs'] = LRs 
-      lr_schedulers['last_epoch'] = 0
-
-      # assume cosine annealing LR
-      lr_schedulers['T_cur'] = 0
-      lr_schedulers['T_0'] = 10
-
+      lr_schedulers['last_lrs'] = LRs
+      
       param_groups = checkpoint['optimizer_states'][0]['param_groups']
       
       for idx, param_group in enumerate(param_groups):
@@ -249,15 +231,10 @@ class NNUE(pl.LightningModule):
       {'params': self.get_layers(lambda x: self.output == x), 'lr': LRs[3] },
     ]
 
-    # optimizer = ranger.Ranger(train_params)
-    optimizer = torch.optim.SGD(train_params)
+    optimizer = ranger.Ranger(train_params)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=4, verbose=True)
-    # scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=100, verbose=True)
 
-    return { 'optimizer': optimizer,
-             'lr_scheduler': scheduler,
-             'monitor': 'val_loss'
-           }
+    return { 'optimizer': optimizer, 'lr_scheduler': scheduler, 'monitor': 'val_loss' }
 
   def get_layers(self, filt):
     """
