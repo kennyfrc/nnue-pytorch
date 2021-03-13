@@ -95,7 +95,7 @@ def main():
   print('Using log dir {}'.format(logdir), flush=True)
 
   tb_logger = pl_loggers.TensorBoardLogger(logdir)
-  checkpoint_callback = pl.callbacks.ModelCheckpoint(save_top_k=30, mode="min", monitor="val_loss", filename='{epoch}-{val_loss:.4f}', dirpath='logs/{}'.format(args.folder_name))
+  checkpoint_callback = pl.callbacks.ModelCheckpoint(save_top_k=30, mode="min", monitor="val_loss", filename='{epoch}-{val_loss:.5f}', dirpath='logs/{}'.format(args.folder_name))
   trainer = pl.Trainer.from_argparse_args(args, callbacks=[checkpoint_callback], logger=tb_logger, max_epochs=args.max_epochs)
 
   main_device = trainer.root_device if trainer.root_gpu is None else 'cuda:' + str(trainer.root_gpu)
