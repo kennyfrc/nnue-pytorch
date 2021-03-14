@@ -114,37 +114,15 @@ class NNUE(pl.LightningModule):
 
     # 600 is the kPonanzaConstant scaling factor needed to convert the training net output to a score.
     # This needs to match the value used in the serializer
-    # It just works
     nnue2score = 600
     pawnValueEg = 208
-    scaling = pawnValueEg * 4 * math.log(10)
-
-    # # MSE Loss for debugging
-    # # predicted, outcome, teacher scores (in order)
-    # p_score = (self(us, them, white, black) * nnue2score / scaling).sigmoid()
-    # z_score = outcome
-    # q_score = (score / scaling).sigmoid()
-
-    # # teacher score
-    # # only care about z when the outcome is a win/loss
-    # # if there is a win/loss, only then shall you train against it
-    # if self.lambda_ < 1:
-    #   t_score = torch.where(
-    #     torch.logical_or(z_score.eq(1.0),z_score.eq(0.0)),
-    #     (q_score * self.lambda_) + (z_score * (1.0 - self.lambda_)),
-    #     q_score
-    #   )
-    # else:
-    #   t_score = q_score
-
-    # loss = F.mse_loss(p_score, t_score)
-    # self.log(loss_type, "mse_loss")
+    scaling = pawnValueEg / 4 * math.log(10)
 
     # Cross-Entropy Loss
     q = self(us, them, white, black) * nnue2score / scaling
     t = outcome
     p = (score / scaling).sigmoid()
-
+    
     epsilon = 1e-12
     teacher_entropy = -(p * (p + epsilon).log() + (1.0 - p) * (1.0 - p + epsilon).log())
     teacher_loss = -(p * F.logsigmoid(q) + (1.0 - p) * F.logsigmoid(-q))
@@ -158,14 +136,14 @@ class NNUE(pl.LightningModule):
       else:
         result  = self.lambda_ * teacher_loss    + (1.0 - self.lambda_) * outcome_loss
       return result
-
+    
     def get_entropy(lambda_, t_entropy, o_entropy, drawn_game):
       if drawn_game:
         entropy = teacher_entropy
       else:
         entropy = self.lambda_ * teacher_entropy + (1.0 - self.lambda_) * outcome_entropy
       return entropy
-
+    
     if self.lambda_ != 1.0:
       result = torch.where(
         torch.logical_or(t.eq(1.0),t.eq(0.0)),
