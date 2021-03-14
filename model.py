@@ -35,7 +35,11 @@ class NNUE(pl.LightningModule):
     # kActiveDimensions - avg moves per game - avg captures per move
     self.avgActivePieces = 30 - (40.04 * 0.24) 
 
+    self._initialize_feature_weights()
     self._zero_virtual_feature_weights()
+    self._initialize_affine_l1()
+    self._initialize_affine_l2()
+    self._initialize_output()
 
   '''
   We zero all virtual feature weights because during serialization to .nnue
@@ -51,6 +55,22 @@ class NNUE(pl.LightningModule):
         for a, b in self.feature_set.get_virtual_feature_ranges():
             weights[:, a:b] = 0.0
     self.input.weight = nn.Parameter(weights)
+
+  def _initialize_feature_weights(self):
+    nn.init.kaiming_normal_(self.input.weight, nonlinearity='relu')
+    nn.init.uniform_(self.input.bias, 0.0, 0.0)
+
+  def _initialize_affine_l1(self):
+    nn.init.kaiming_normal_(self.l1.weight, nonlinearity='relu')
+    nn.init.uniform_(self.l1.bias, 0.0, 0.0)
+
+  def _initialize_affine_l2(self):
+    nn.init.kaiming_normal_(self.l2.weight, nonlinearity='relu')
+    nn.init.uniform_(self.l2.bias, 0.0, 0.0)
+
+  def _initialize_output(self):
+    nn.init.kaiming_normal_(self.output.weight, nonlinearity='relu')
+    nn.init.uniform_(self.output.bias, 0.0, 0.0)
 
   '''
   This method attempts to convert the model from using the self.feature_set
