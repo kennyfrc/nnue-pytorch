@@ -31,6 +31,7 @@ class NNUE(pl.LightningModule):
     self.lambda_ = lambda_
     self.lrs_ = lrs_
     self.finetune = finetune
+    self.restart_epoch = 100
 
     # kActiveDimensions - avg moves per game - avg captures per move
     self.avgActivePieces = 30 - (40.04 * 0.24) 
@@ -204,14 +205,13 @@ class NNUE(pl.LightningModule):
       checkpoint['epoch'] = 0
       checkpoint['global_step'] = 0
 
-      lr_schedulers['factor'] = 0.5
-      lr_schedulers['patience'] = 4
-      lr_schedulers['best'] = 1
       lr_schedulers['last_epoch'] = -1
-      lr_schedulers['_last_lr'] = LRs
       lr_schedulers['base_lrs'] = LRs
       lr_schedulers['last_lrs'] = LRs
-      
+     
+      lr_schedulers['T_cur'] = 0
+      lr_schedulers['T_0'] = self.restart_epoch
+
       param_groups = checkpoint['optimizer_states'][0]['param_groups']
       
       for idx, param_group in enumerate(param_groups):
@@ -230,7 +230,7 @@ class NNUE(pl.LightningModule):
     ]
 
     optimizer = ranger.Ranger(train_params)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=4, verbose=True)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=self.restart_epoch, verbose=True)
 
     return { 'optimizer': optimizer, 'lr_scheduler': scheduler, 'monitor': 'val_loss' }
 
