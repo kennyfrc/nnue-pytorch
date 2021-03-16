@@ -33,8 +33,9 @@ class NNUE(pl.LightningModule):
     self.finetune = finetune
     self.restart_epoch = 100
 
-    # kActiveDimensions - avg moves per game - avg captures per move
-    self.avgActivePieces = 30 - (40.04 * 0.24) 
+    # kMaxActiveDimensions - avg moves per game - avg captures per move
+    self.kMaxActiveDimensions = 30
+    self.kAvgActiveDimensions = self.kMaxActiveDimensions - (40.04 * 0.24) 
 
     self._initialize_feature_weights()
     self._zero_virtual_feature_weights()
@@ -58,20 +59,51 @@ class NNUE(pl.LightningModule):
     self.input.weight = nn.Parameter(weights)
 
   def _initialize_feature_weights(self):
-    nn.init.kaiming_normal_(self.input.weight, nonlinearity='relu')
-    nn.init.uniform_(self.input.bias, 0.0, 0.0)
+    # initialize weights - normal distribution
+    weights = self.input.weight.clone()
+    kSigma = 0.1 / math.sqrt(self.kMaxActiveDimensions)
+    weights = weights.normal_(0.0, kSigma)
+    self.input.weight = nn.Parameter(weights)
+
+    # initialize biases - uniform distribution
+    biases = self.input.bias
+    biases = biases.clone().fill_(0.5)
+    self.input.bias = nn.Parameter(biases)
 
   def _initialize_affine_l1(self):
-    nn.init.kaiming_normal_(self.l1.weight, nonlinearity='relu')
-    nn.init.uniform_(self.l1.bias, 0.0, 0.0)
+    # initialize weights
+    weights = self.l1.weight.clone()
+    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.l1.weight)
+    std = 1.0 / math.sqrt(fan_in)
+    weights = weights.normal_(0.0, std)
+    self.l1.weight = nn.Parameter(weights)
+
+    # initialize biases
+    biases = 0.5 - 0.5 * torch.sum(self.l1.weight, 1)
+    self.l1.bias = nn.Parameter(biases)
 
   def _initialize_affine_l2(self):
-    nn.init.kaiming_normal_(self.l2.weight, nonlinearity='relu')
-    nn.init.uniform_(self.l2.bias, 0.0, 0.0)
+    # initialize weights
+    weights = self.l2.weight.clone()
+    fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.l2.weight)
+    std = 1.0 / math.sqrt(fan_in)
+    weights = weights.normal_(0.0, std)
+    self.l2.weight = nn.Parameter(weights)
+
+    # initialize biases
+    biases = 0.5 - 0.5 * torch.sum(self.l2.weight, 1)
+    self.l2.bias = nn.Parameter(biases)
 
   def _initialize_output(self):
-    nn.init.kaiming_normal_(self.output.weight, nonlinearity='relu')
-    nn.init.uniform_(self.output.bias, 0.0, 0.0)
+    # initialize weights
+    weights = self.output.weight.clone()
+    weights = weights.clone().fill_(0.0)
+    self.output.weight = nn.Parameter(weights)
+    
+    # initialize biases
+    biases = self.output.bias
+    biases = biases.clone().fill_(0.0)
+    self.output.bias = nn.Parameter(biases)
 
   '''
   This method attempts to convert the model from using the self.feature_set
@@ -128,7 +160,7 @@ class NNUE(pl.LightningModule):
     g = w.grad
     a = self.feature_set.features[0].get_factor_base_feature('HalfK')
     b = self.feature_set.features[0].get_factor_base_feature('P')
-    g[:, a:b] /= self.avgActivePieces
+    g[:, a:b] /= self.kAvgActiveDimensions
 
   def step_(self, batch, batch_idx, loss_type):    
     us, them, white, black, outcome, score = batch
