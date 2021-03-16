@@ -21,7 +21,7 @@ class NNUE(pl.LightningModule):
 
   It is not ideal for training a Pytorch quantized model directly.
   """
-  def __init__(self, feature_set, lambda_=1.0, lrs_=[1e-3,1e-3,1e-3,1e-4], finetune=False):
+  def __init__(self, feature_set, lambda_=1.0, lrs_=[1e-3,1e-3,1e-3,1e-4], finetune=False, inv_k=410):
     super(NNUE, self).__init__()
     self.input = nn.Linear(feature_set.num_features, L1)
     self.feature_set = feature_set
@@ -32,6 +32,7 @@ class NNUE(pl.LightningModule):
     self.lrs_ = lrs_
     self.finetune = finetune
     self.restart_epoch = 100
+    self.inv_k = inv_k
 
     # kMaxActiveDimensions - avg moves per game - avg captures per move
     self.kMaxActiveDimensions = 30
@@ -169,12 +170,14 @@ class NNUE(pl.LightningModule):
     # This needs to match the value used in the serializer
     nnue2score = 600
     pawnValueEg = 208
-    scaling = pawnValueEg / 4 * math.log(10)
+    # scaling = pawnValueEg / 4 * math.log(10)
+    out_scaling = 641
+    in_scaling = self.inv_k
 
     # Cross-Entropy Loss
-    q = self(us, them, white, black) * nnue2score / scaling
+    q = self(us, them, white, black) * nnue2score / out_scaling
     t = outcome
-    p = (score / scaling).sigmoid()
+    p = (score / in_scaling).sigmoid()
     
     epsilon = 1e-12
     teacher_entropy = -(p * (p + epsilon).log() + (1.0 - p) * (1.0 - p + epsilon).log())
@@ -240,9 +243,11 @@ class NNUE(pl.LightningModule):
       lr_schedulers['last_epoch'] = -1
       lr_schedulers['base_lrs'] = LRs
       lr_schedulers['last_lrs'] = LRs
-     
-      lr_schedulers['T_cur'] = 0
-      lr_schedulers['T_0'] = self.restart_epoch
+
+      lr_schedulers['factor'] = 0.5
+      lr_schedulers['patience'] = 5
+      lr_schedulers['best'] = 1
+      lr_schedulers['_last_lr'] = LRs
 
       param_groups = checkpoint['optimizer_states'][0]['param_groups']
       
@@ -262,7 +267,11 @@ class NNUE(pl.LightningModule):
     ]
 
     optimizer = ranger.Ranger(train_params)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=self.restart_epoch, verbose=True)
+    
+    if self.finetune:
+      scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.5, patience=5, verbose=True)
+    else:
+      scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=self.restart_epoch, verbose=True)
 
     return { 'optimizer': optimizer, 'lr_scheduler': scheduler, 'monitor': 'val_loss' }
 

@@ -6,9 +6,23 @@ import pytorch_lightning as pl
 import features
 import os
 import torch
+import sigmoid_fitter as sf
 from torch import set_num_threads as t_set_num_threads
 from pytorch_lightning import loggers as pl_loggers
 from torch.utils.data import DataLoader, Dataset
+
+def get_scaling_factor(filename, bucket_size, count=16):
+  data = sf.gather_statistics_from_data(filename, count, bucket_size)
+  # plot of the perf% by eval and the fitted sigmoid
+  x = list(data.keys())
+  y = [data[k][0] / data[k][1] for k in x]
+  # sigma is uncertainties, we con't care how correct it is.
+  # The inverted counts are good enough.
+  sigma = [1 / data[k][1] for k in x]
+  k = sf.fit_data(x, y, sigma)
+  print(f'this is k: {k}')
+
+  return 1/k
 
 def data_loader_cc(train_filename, val_filename, feature_set, num_workers, batch_size, filtered, random_fen_skipping, main_device):
   # Epoch and validation sizes are arbitrary
@@ -21,9 +35,11 @@ def data_loader_cc(train_filename, val_filename, feature_set, num_workers, batch
                                                    random_fen_skipping=random_fen_skipping, device=main_device)
   # num_workers has to be 0 for sparse, and 1 for dense
   # it currently cannot work in parallel mode but it shouldn't need to
+
+  inv_k = get_scaling_factor(train_filename, val_size*10)
   train = DataLoader(nnue_dataset.FixedNumBatchesDataset(train_infinite, (epoch_size + batch_size - 1) // batch_size), batch_size=None, batch_sampler=None)
   val = DataLoader(nnue_dataset.FixedNumBatchesDataset(val_infinite, (val_size + batch_size - 1) // batch_size), batch_size=None, batch_sampler=None)
-  return train, val
+  return train, val, inv_k
 
 def data_loader_py(train_filename, val_filename, feature_set, batch_size, main_device):
   train = DataLoader(nnue_bin_dataset.NNUEBinData(train_filename, feature_set), batch_size=batch_size, shuffle=True, num_workers=4)
@@ -106,7 +122,10 @@ def main():
     train, val = data_loader_py(args.train, args.val, feature_set, batch_size, main_device)
   else:
     print('Using c++ data loader')
-    train, val = data_loader_cc(args.train, args.val, feature_set, args.num_workers, batch_size, args.smart_fen_skipping, args.random_fen_skipping, main_device)
+    train, val, inv_k = data_loader_cc(args.train, args.val, feature_set, args.num_workers, batch_size, args.smart_fen_skipping, args.random_fen_skipping, main_device)
+
+  nnue.inv_k = 446
+  print(f'Using inv_k of {nnue.inv_k}')
 
   trainer.fit(nnue, train, val)
 
